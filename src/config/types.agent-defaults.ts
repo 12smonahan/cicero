@@ -198,6 +198,26 @@ export type AgentDefaultsConfig = {
      */
     includeReasoning?: boolean;
   };
+  /** Smart model routing: automatically selects the model tier based on message complexity. */
+  router?: {
+    /** Whether the router is enabled (default: false). */
+    enabled?: boolean;
+    /** Custom routing rules (regex → tier). Evaluated in order; first match wins. */
+    rules?: Array<{
+      /** Regex pattern to match against the message body. */
+      pattern: string;
+      /** Model tier to use when this rule matches. */
+      tier: "mini" | "mid" | "high" | "max";
+      /** Regex flags (default: "i" for case-insensitive). */
+      flags?: string;
+    }>;
+    /** Model used for the LLM classifier fallback (default: "openai/gpt-5-mini"). */
+    classifierModel?: string;
+    /** Mapping of tier names to provider/model strings. */
+    tiers?: Partial<Record<"mini" | "mid" | "high" | "max", string>>;
+    /** Timeout in milliseconds for the classifier LLM call (default: 3000). */
+    classifierTimeoutMs?: number;
+  };
   /** Max concurrent agent runs across all conversations. Default: 1 (sequential). */
   maxConcurrent?: number;
   /** Sub-agent defaults (spawned via sessions_spawn). */

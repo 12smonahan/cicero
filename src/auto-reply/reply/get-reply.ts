@@ -6,6 +6,7 @@ import {
   resolveSessionAgentId,
   resolveAgentSkillsFilter,
 } from "../../agents/agent-scope.js";
+import { routeModelForMessage } from "../../agents/model-router.js";
 import { resolveModelRefFromString } from "../../agents/model-selection.js";
 import { resolveAgentTimeoutMs } from "../../agents/timeout.js";
 import { DEFAULT_AGENT_WORKSPACE_DIR, ensureAgentWorkspace } from "../../agents/workspace.js";
@@ -90,6 +91,23 @@ export async function getReplyFromConfig(
     if (heartbeatRef) {
       provider = heartbeatRef.ref.provider;
       model = heartbeatRef.ref.model;
+    }
+  }
+
+  // Smart model routing: classify the message and select the appropriate model tier.
+  // Runs only for non-heartbeat messages. User /model directives (processed later in
+  // resolveReplyDirectives) will override the router's selection.
+  if (!opts?.isHeartbeat) {
+    const routed = await routeModelForMessage({
+      message: ctx.Body ?? "",
+      cfg,
+      defaultProvider: provider,
+      defaultModel: model,
+      aliasIndex,
+    });
+    if (routed) {
+      provider = routed.provider;
+      model = routed.model;
     }
   }
 

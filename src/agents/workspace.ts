@@ -294,6 +294,11 @@ export async function loadWorkspaceBootstrapFiles(dir: string): Promise<Workspac
 
 const SUBAGENT_BOOTSTRAP_ALLOWLIST = new Set([DEFAULT_AGENTS_FILENAME, DEFAULT_TOOLS_FILENAME]);
 
+const HEARTBEAT_BOOTSTRAP_ALLOWLIST = new Set([
+  DEFAULT_HEARTBEAT_FILENAME,
+  DEFAULT_AGENTS_FILENAME,
+]);
+
 export function filterBootstrapFilesForSession(
   files: WorkspaceBootstrapFile[],
   sessionKey?: string,
@@ -302,4 +307,10 @@ export function filterBootstrapFilesForSession(
     return files;
   }
   return files.filter((file) => SUBAGENT_BOOTSTRAP_ALLOWLIST.has(file.name));
+}
+
+export function filterBootstrapFilesForHeartbeat(
+  files: WorkspaceBootstrapFile[],
+): WorkspaceBootstrapFile[] {
+  return files.filter((file) => HEARTBEAT_BOOTSTRAP_ALLOWLIST.has(file.name));
 }

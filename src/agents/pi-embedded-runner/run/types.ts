@@ -90,6 +90,8 @@ export type EmbeddedRunAttemptParams = {
   streamParams?: AgentStreamParams;
   ownerNumbers?: string[];
   enforceFinalTag?: boolean;
+  /** Whether this run is a heartbeat (used for bootstrap file filtering). */
+  isHeartbeat?: boolean;
 };
 
 export type EmbeddedRunAttemptResult = {
