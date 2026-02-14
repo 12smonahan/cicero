@@ -153,12 +153,23 @@ export class CallManager {
     this.persistCallRecord(callRecord);
 
     try {
-      // For notify mode with a message, use inline TwiML with <Say>
+      // Generate inline TwiML for calls with an initial message.
+      // This uses Twilio's inline Twiml parameter, bypassing the webhook round-trip.
       let inlineTwiml: string | undefined;
-      if (mode === "notify" && initialMessage) {
+      if (initialMessage) {
         const pollyVoice = mapVoiceToPolly(this.config.tts?.openai?.voice);
-        inlineTwiml = this.generateNotifyTwiml(initialMessage, pollyVoice);
-        console.log(`[voice-call] Using inline TwiML for notify mode (voice: ${pollyVoice})`);
+        if (mode === "notify") {
+          inlineTwiml = this.generateNotifyTwiml(initialMessage, pollyVoice);
+        } else {
+          // Conversation mode: speak the message, then redirect to webhook for interaction
+          inlineTwiml = this.generateConversationTwiml(
+            initialMessage,
+            pollyVoice,
+            this.webhookUrl,
+            callId,
+          );
+        }
+        console.log(`[voice-call] Using inline TwiML for ${mode} mode (voice: ${pollyVoice})`);
       }
 
       const result = await this.provider.initiateCall({
@@ -882,6 +893,26 @@ export class CallManager {
 <Response>
   <Say voice="${voice}">${escapeXml(message)}</Say>
   <Hangup/>
+</Response>`;
+  }
+
+  /**
+   * Generate TwiML for conversation mode (speak message, then redirect to webhook).
+   * After the initial message, Twilio redirects to the webhook for further interaction
+   * (e.g. media stream connect or <Gather> for speech input).
+   */
+  private generateConversationTwiml(
+    message: string,
+    voice: string,
+    webhookUrl: string,
+    callId: string,
+  ): string {
+    const redirectUrl = new URL(webhookUrl);
+    redirectUrl.searchParams.set("callId", callId);
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="${voice}">${escapeXml(message)}</Say>
+  <Redirect method="POST">${escapeXml(redirectUrl.toString())}</Redirect>
 </Response>`;
   }
 }
