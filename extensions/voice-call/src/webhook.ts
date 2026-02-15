@@ -374,12 +374,17 @@ export class VoiceCallWebhookServer {
 
       if (result.error) {
         console.error(`[voice-call] Response generation error: ${result.error}`);
-        return;
       }
 
       if (result.text) {
         console.log(`[voice-call] AI response: "${result.text}"`);
         await this.manager.speak(callId, result.text);
+      } else {
+        console.warn(
+          `[voice-call] No AI response text generated for "${userMessage}" (error: ${result.error ?? "none"})`,
+        );
+        // Fallback: speak a generic acknowledgement so the caller doesn't hear silence
+        await this.manager.speak(callId, "I'm here, go ahead.");
       }
     } catch (err) {
       console.error(`[voice-call] Auto-response error:`, err);
@@ -496,11 +501,24 @@ export async function setupTailscaleExposure(config: VoiceCallConfig): Promise<s
   // Include the path suffix so tailscale forwards to the correct endpoint
   // (tailscale strips the mount path prefix when proxying)
   const localUrl = `http://127.0.0.1:${config.serve.port}${config.serve.path}`;
-  return setupTailscaleExposureRoute({
+  const publicUrl = await setupTailscaleExposureRoute({
     mode,
     path: config.tailscale.path,
     localUrl,
   });
+
+  // Also expose the media stream WebSocket path so Twilio can connect
+  if (publicUrl && config.streaming?.enabled) {
+    const streamPath = config.streaming.streamPath || "/voice/stream";
+    const streamLocalUrl = `http://127.0.0.1:${config.serve.port}${streamPath}`;
+    await setupTailscaleExposureRoute({
+      mode,
+      path: streamPath,
+      localUrl: streamLocalUrl,
+    });
+  }
+
+  return publicUrl;
 }
 
 /**
@@ -513,4 +531,9 @@ export async function cleanupTailscaleExposure(config: VoiceCallConfig): Promise
 
   const mode = config.tailscale.mode === "funnel" ? "funnel" : "serve";
   await cleanupTailscaleExposureRoute({ mode, path: config.tailscale.path });
+
+  if (config.streaming?.enabled) {
+    const streamPath = config.streaming.streamPath || "/voice/stream";
+    await cleanupTailscaleExposureRoute({ mode, path: streamPath });
+  }
 }
