@@ -29,6 +29,34 @@ const PERPLEXITY_KEY_PREFIXES = ["pplx-"];
 const OPENROUTER_KEY_PREFIXES = ["sk-or-"];
 
 const SEARCH_CACHE = new Map<string, CacheEntry<Record<string, unknown>>>();
+
+// Brave rate-limiting: space requests to ~20/sec and retry on 429
+const BRAVE_MIN_INTERVAL_MS = 50; // 20 req/sec max throughput
+const BRAVE_MAX_RETRIES = 3;
+const BRAVE_RETRY_BASE_MS = 1000; // exponential: 1s → 2s → 4s
+let braveLastRequestAt = 0;
+
+async function braveRateLimit(): Promise<void> {
+  const wait = BRAVE_MIN_INTERVAL_MS - (Date.now() - braveLastRequestAt);
+  if (wait > 0) {
+    await new Promise((r) => setTimeout(r, wait));
+  }
+  braveLastRequestAt = Date.now();
+}
+
+async function fetchBraveWithRetry(url: string, init: RequestInit): Promise<Response> {
+  for (let attempt = 0; ; attempt++) {
+    await braveRateLimit();
+    const res = await fetch(url, init);
+    if (res.status !== 429 || attempt >= BRAVE_MAX_RETRIES) {
+      return res;
+    }
+    // Exponential backoff: 1s, 2s, 4s
+    const delay = BRAVE_RETRY_BASE_MS * 2 ** attempt;
+    await new Promise((r) => setTimeout(r, delay));
+  }
+}
+
 const BRAVE_FRESHNESS_SHORTCUTS = new Set(["pd", "pw", "pm", "py"]);
 const BRAVE_FRESHNESS_RANGE = /^(\d{4}-\d{2}-\d{2})to(\d{4}-\d{2}-\d{2})$/;
 
@@ -417,7 +445,7 @@ async function runWebSearch(params: {
     url.searchParams.set("freshness", params.freshness);
   }
 
-  const res = await fetch(url.toString(), {
+  const res = await fetchBraveWithRetry(url.toString(), {
     method: "GET",
     headers: {
       Accept: "application/json",
