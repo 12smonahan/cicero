@@ -1,9 +1,15 @@
 services:
   openclaw-gateway:
     image: ${OPENCLAW_IMAGE:-openclaw:local}
+    group_add:
+      - "0"
     environment:
       HOME: /home/node
       TERM: xterm-256color
+      GOG_KEYRING_BACKEND: file
+      GOG_KEYRING_PASSWORD: openclaw-gog-secret
+      GOG_ACCOUNT: 12smonahan@gmail.com
+      XDG_CONFIG_HOME: /home/node/.openclaw/xdg-config
       OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN}
       CLAUDE_AI_SESSION_KEY: ${CLAUDE_AI_SESSION_KEY}
       CLAUDE_WEB_SESSION_KEY: ${CLAUDE_WEB_SESSION_KEY}
@@ -11,11 +17,28 @@ services:
     volumes:
       - ${OPENCLAW_CONFIG_DIR}:/home/node/.openclaw
       - ${OPENCLAW_WORKSPACE_DIR}:/home/node/.openclaw/workspace
+      - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "${OPENCLAW_GATEWAY_PORT:-18789}:18789"
       - "${OPENCLAW_BRIDGE_PORT:-18790}:18790"
+      - "3334:3334"
+      - "8787:8787"
+    networks:
+      openclaw-net:
     init: true
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "dist/index.js", "health", "--json"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 1G
     command:
       [
         "node",
@@ -27,8 +50,24 @@ services:
         "18789",
       ]
 
+  openclaw-browser:
+    image: openclaw-sandbox-browser:bookworm-slim
+    ports:
+      - "127.0.0.1:9222:9222"
+      - "127.0.0.1:6080:6080"
+    environment:
+      OPENCLAW_BROWSER_HEADLESS: "0"
+      OPENCLAW_BROWSER_ENABLE_NOVNC: "1"
+    networks:
+      openclaw-net:
+        ipv4_address: 172.28.0.10
+    init: true
+    restart: unless-stopped
+
   openclaw-cli:
     image: ${OPENCLAW_IMAGE:-openclaw:local}
+    group_add:
+      - "0"
     environment:
       HOME: /home/node
       TERM: xterm-256color
@@ -40,7 +79,17 @@ services:
     volumes:
       - ${OPENCLAW_CONFIG_DIR}:/home/node/.openclaw
       - ${OPENCLAW_WORKSPACE_DIR}:/home/node/.openclaw/workspace
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      openclaw-net:
     stdin_open: true
     tty: true
     init: true
     entrypoint: ["node", "dist/index.js"]
+
+networks:
+  openclaw-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
