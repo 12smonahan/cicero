@@ -324,6 +324,9 @@ export const VoiceCallConfigSchema = z
     /** Default phone number to call (E.164) */
     toNumber: E164Schema.optional(),
 
+    /** Owner's phone number for trust tier resolution (E.164). Falls back to toNumber. */
+    ownerNumber: E164Schema.optional(),
+
     /** Inbound call policy */
     inboundPolicy: InboundPolicySchema.default("disabled"),
 

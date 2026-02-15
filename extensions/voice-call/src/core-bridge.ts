@@ -42,6 +42,9 @@ type CoreAgentDeps = {
     lane?: string;
     extraSystemPrompt?: string;
     agentDir?: string;
+    senderIsOwner?: boolean;
+    ownerNumbers?: string[];
+    disableTools?: boolean;
   }) => Promise<{
     payloads?: Array<{ text?: string; isError?: boolean }>;
     meta?: { aborted?: boolean };
