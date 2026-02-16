@@ -429,10 +429,20 @@ export class TwilioProvider implements VoiceCallProvider {
    * @param streamUrl - WebSocket URL (wss://...) for the media stream
    */
   getStreamConnectXml(streamUrl: string): string {
+    // Extract token from query params and pass as <Parameter> instead,
+    // since Twilio strips query params from WebSocket URLs.
+    const parsed = new URL(streamUrl);
+    const token = parsed.searchParams.get("token");
+    parsed.searchParams.delete("token");
+    const cleanUrl = parsed.toString();
+
+    const paramXml = token ? `\n      <Parameter name="token" value="${escapeXml(token)}" />` : "";
+
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
-    <Stream url="${escapeXml(streamUrl)}" />
+    <Stream url="${escapeXml(cleanUrl)}">${paramXml}
+    </Stream>
   </Connect>
 </Response>`;
   }
@@ -557,26 +567,21 @@ export class TwilioProvider implements VoiceCallProvider {
       throw new Error("TTS provider and media stream handler required");
     }
 
-    // Stream audio in 20ms chunks (160 bytes at 8kHz mu-law)
-    const CHUNK_SIZE = 160;
-    const CHUNK_DELAY_MS = 20;
+    // Send audio in 640-byte chunks (80ms at 8kHz mu-law) without pacing delays.
+    // Twilio's media stream has its own jitter buffer that handles smooth playback.
+    // Sending faster than real-time lets Twilio buffer ahead, avoiding gaps from
+    // Node.js timer jitter that caused choppy audio with setTimeout-based pacing.
+    const CHUNK_SIZE = 640;
 
     const handler = this.mediaStreamHandler;
     const ttsProvider = this.ttsProvider;
     await handler.queueTts(streamSid, async (signal) => {
       // Generate audio with core TTS (returns mu-law at 8kHz)
       const muLawAudio = await ttsProvider.synthesizeForTelephony(text);
-      for (const chunk of chunkAudio(muLawAudio, CHUNK_SIZE)) {
-        if (signal.aborted) {
-          break;
-        }
-        handler.sendAudio(streamSid, chunk);
 
-        // Pace the audio to match real-time playback
-        await new Promise((resolve) => setTimeout(resolve, CHUNK_DELAY_MS));
-        if (signal.aborted) {
-          break;
-        }
+      for (const chunk of chunkAudio(muLawAudio, CHUNK_SIZE)) {
+        if (signal.aborted) break;
+        handler.sendAudio(streamSid, chunk);
       }
 
       if (!signal.aborted) {

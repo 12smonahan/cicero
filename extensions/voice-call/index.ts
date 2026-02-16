@@ -132,6 +132,11 @@ const VoiceCallToolSchema = Type.Union([
     callId: Type.String({ description: "Call ID" }),
   }),
   Type.Object({
+    action: Type.Literal("get_history"),
+    limit: Type.Optional(Type.Number({ description: "Max calls to return (default 10)" })),
+    to: Type.Optional(Type.String({ description: "Filter by destination number" })),
+  }),
+  Type.Object({
     mode: Type.Optional(Type.Union([Type.Literal("call"), Type.Literal("status")])),
     to: Type.Optional(Type.String({ description: "Call target" })),
     sid: Type.Optional(Type.String({ description: "Call SID" })),
@@ -328,7 +333,8 @@ const voiceCallPlugin = {
     api.registerTool({
       name: "voice_call",
       label: "Voice Call",
-      description: "Make phone calls and have voice conversations via the voice-call plugin.",
+      description:
+        "Make phone calls and have voice conversations via the voice-call plugin. Actions: initiate_call, continue_call, speak_to_user, end_call, get_status (by callId, includes transcript), get_history (list recent calls with transcripts, optional 'to' filter and 'limit').",
       parameters: VoiceCallToolSchema,
       async execute(_toolCallId, params) {
         const json = (payload: unknown) => ({
@@ -405,9 +411,22 @@ const voiceCallPlugin = {
                 if (!callId) {
                   throw new Error("callId required");
                 }
-                const call =
-                  rt.manager.getCall(callId) || rt.manager.getCallByProviderCallId(callId);
+                // Check active calls first, then fall back to persisted history
+                let call = rt.manager.getCall(callId) || rt.manager.getCallByProviderCallId(callId);
+                if (!call) {
+                  const history = await rt.manager.getCallHistory(100);
+                  call = history.filter((c) => c.callId === callId).pop();
+                }
                 return json(call ? { found: true, call } : { found: false });
+              }
+              case "get_history": {
+                const limit = typeof params.limit === "number" ? params.limit : 10;
+                const filterTo = typeof params.to === "string" ? params.to.trim() : "";
+                let calls = await rt.manager.getCallHistory(limit);
+                if (filterTo) {
+                  calls = calls.filter((c) => c.to === filterTo || c.from === filterTo);
+                }
+                return json({ calls: calls.slice(-limit) });
               }
             }
           }

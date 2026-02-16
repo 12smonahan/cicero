@@ -157,19 +157,38 @@ export class CallManager {
       // This uses Twilio's inline Twiml parameter, bypassing the webhook round-trip.
       let inlineTwiml: string | undefined;
       if (initialMessage) {
-        const pollyVoice = mapVoiceToPolly(this.config.tts?.openai?.voice);
         if (mode === "notify") {
+          const pollyVoice = mapVoiceToPolly(this.config.tts?.openai?.voice);
           inlineTwiml = this.generateNotifyTwiml(initialMessage, pollyVoice);
+          console.log(`[voice-call] Using inline TwiML for notify mode (voice: ${pollyVoice})`);
+        } else if (this.config.streaming?.enabled) {
+          // Streaming enabled: skip <Say> to avoid Polly voice mismatch.
+          // The initial message stays in metadata so speakInitialMessage()
+          // speaks it via OpenAI TTS when the stream connects.
+          inlineTwiml = this.generateRedirectOnlyTwiml(this.webhookUrl, callId);
+          console.log(`[voice-call] Using redirect-only TwiML for streaming conversation mode`);
         } else {
-          // Conversation mode: speak the message, then redirect to webhook for interaction
+          const pollyVoice = mapVoiceToPolly(this.config.tts?.openai?.voice);
           inlineTwiml = this.generateConversationTwiml(
             initialMessage,
             pollyVoice,
             this.webhookUrl,
             callId,
           );
+          console.log(
+            `[voice-call] Using inline TwiML for conversation mode (voice: ${pollyVoice})`,
+          );
         }
-        console.log(`[voice-call] Using inline TwiML for ${mode} mode (voice: ${pollyVoice})`);
+      }
+
+      // For non-streaming modes, clear initialMessage so the streaming onConnect
+      // doesn't re-speak it (Polly <Say> already spoke it).
+      // For streaming conversation mode, keep it for speakInitialMessage().
+      if (!(mode === "conversation" && this.config.streaming?.enabled)) {
+        if (callRecord.metadata) {
+          delete callRecord.metadata.initialMessage;
+        }
+        this.persistCallRecord(callRecord);
       }
 
       const result = await this.provider.initiateCall({
@@ -912,6 +931,20 @@ export class CallManager {
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="${voice}">${escapeXml(message)}</Say>
+  <Redirect method="POST">${escapeXml(redirectUrl.toString())}</Redirect>
+</Response>`;
+  }
+
+  /**
+   * Generate TwiML that just redirects to the webhook (no <Say>).
+   * Used in streaming conversation mode so the initial message is spoken
+   * via OpenAI TTS (same voice as subsequent responses) instead of Polly.
+   */
+  private generateRedirectOnlyTwiml(webhookUrl: string, callId: string): string {
+    const redirectUrl = new URL(webhookUrl);
+    redirectUrl.searchParams.set("callId", callId);
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
   <Redirect method="POST">${escapeXml(redirectUrl.toString())}</Redirect>
 </Response>`;
   }

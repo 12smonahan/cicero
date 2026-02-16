@@ -146,6 +146,10 @@ export class MediaStreamHandler {
     const streamSid = message.streamSid || "";
     const callSid = message.start?.callSid || "";
 
+    // Prefer token from Twilio's customParameters (since URL query params are stripped),
+    // fall back to URL query param for non-Twilio providers.
+    const token = message.start?.customParameters?.token ?? streamToken;
+
     console.log(`[MediaStream] Stream started: ${streamSid} (call: ${callSid})`);
     if (!callSid) {
       console.warn("[MediaStream] Missing callSid; closing stream");
@@ -154,7 +158,7 @@ export class MediaStreamHandler {
     }
     if (
       this.config.shouldAcceptStream &&
-      !this.config.shouldAcceptStream({ callId: callSid, streamSid, token: streamToken })
+      !this.config.shouldAcceptStream({ callId: callSid, streamSid, token })
     ) {
       console.warn(`[MediaStream] Rejecting stream for unknown call: ${callSid}`);
       ws.close(1008, "Unknown call");
@@ -393,6 +397,7 @@ interface TwilioMediaMessage {
     accountSid: string;
     callSid: string;
     tracks: string[];
+    customParameters?: Record<string, string>;
     mediaFormat: {
       encoding: string;
       sampleRate: number;
