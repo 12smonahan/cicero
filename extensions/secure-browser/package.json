@@ -1,0 +1,19 @@
+{
+  "name": "@openclaw/secure-browser",
+  "version": "2026.2.15-1",
+  "description": "Secure browser actions: 1Password vault login, form fill, and purchase approval gates",
+  "type": "module",
+  "dependencies": {
+    "@1password/sdk": "^0.1.6",
+    "@sinclair/typebox": "0.34.48",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "openclaw": "workspace:*"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}
