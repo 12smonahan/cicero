@@ -1,0 +1,47 @@
+{
+  "id": "secure-browser",
+  "uiHints": {
+    "enabled": {
+      "label": "Enabled"
+    },
+    "sensitiveDomains": {
+      "label": "Sensitive Domains"
+    },
+    "approvalChannel": {
+      "label": "Approval Channel"
+    },
+    "approvalTimeout": {
+      "label": "Approval Timeout (s)",
+      "advanced": true
+    },
+    "vaultPrefix": {
+      "label": "Vault Prefix",
+      "advanced": true
+    }
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "enabled": {
+        "type": "boolean"
+      },
+      "sensitiveDomains": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "approvalChannel": {
+        "type": "string"
+      },
+      "approvalTimeout": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "vaultPrefix": {
+        "type": "string"
+      }
+    }
+  }
+}
