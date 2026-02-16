@@ -1,4 +1,9 @@
+FROM docker:27-cli AS docker-cli
+
 FROM node:22-bookworm
+
+# Copy Docker CLI binary from official Docker image (for sandbox browser sidecar support)
+COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
 
 # Install Bun (required for build scripts)
 RUN curl -fsSL https://bun.sh/install | bash
