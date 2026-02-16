@@ -1,8 +1,8 @@
 import type { OpenClawConfig } from "../config/config.js";
 import type { ModelAliasIndex } from "./model-selection.js";
+import { createSubsystemLogger } from "../logging/subsystem.js";
 import { resolveApiKeyForProvider } from "./model-auth.js";
 import { resolveModelRefFromString, type ModelRef } from "./model-selection.js";
-import { createSubsystemLogger } from "../logging/subsystem.js";
 
 const log = createSubsystemLogger("model-router");
 
@@ -32,6 +32,12 @@ export type RouterConfig = {
   tiers?: Partial<Record<ModelTier, string>>;
   /** Timeout in milliseconds for the classifier LLM call (default: 3000). */
   classifierTimeoutMs?: number;
+  /**
+   * Minimum message length (chars) before the LLM classifier is invoked.
+   * Messages shorter than this skip the classifier and use the default model.
+   * Only high/max rule matches can escalate short messages. Default: 80.
+   */
+  classifierMinLength?: number;
 };
 
 export type RouteResult = {
@@ -93,7 +99,10 @@ function compileRules(rules: RouterRule[]): CompiledRule[] {
   return compiled;
 }
 
-function matchRule(message: string, rules: CompiledRule[]): { tier: ModelTier; pattern: string } | null {
+function matchRule(
+  message: string,
+  rules: CompiledRule[],
+): { tier: ModelTier; pattern: string } | null {
   for (const rule of rules) {
     if (rule.regex.test(message)) {
       return { tier: rule.tier, pattern: rule.pattern };
@@ -161,14 +170,18 @@ async function classifyWithLlm(params: {
           { role: "system", content: CLASSIFIER_SYSTEM_PROMPT },
           { role: "user", content: userPrompt },
         ],
-        max_tokens: 5,
-        temperature: 0,
+        max_completion_tokens: 128,
+        temperature: 1,
+        reasoning_effort: "minimal",
       }),
       signal: controller.signal,
     });
 
     if (!res.ok) {
-      log.warn("model-router: classifier API error", { status: res.status });
+      const errorBody = await res.text().catch(() => "");
+      console.warn(
+        `[model-router] classifier API error status=${res.status} body=${errorBody.slice(0, 500)}`,
+      );
       return null;
     }
 
@@ -187,7 +200,7 @@ async function classifyWithLlm(params: {
         }
       }
     }
-    log.warn("model-router: classifier returned unexpected response", { content });
+    console.warn(`[model-router] classifier returned unexpected response: "${content}"`);
     return null;
   } catch (err) {
     if (err instanceof Error && err.name === "AbortError") {
@@ -271,6 +284,16 @@ export async function routeModelForMessage(params: {
   const rules = compileRules(routerConfig.rules ?? []);
   const ruleMatch = matchRule(message, rules);
   if (ruleMatch) {
+    // For mini/mid rule matches, use the default model (no escalation needed).
+    // Only escalate for high/max rule matches.
+    if (ruleMatch.tier === "mini" || ruleMatch.tier === "mid") {
+      log.info("model-router: rule matched low tier, using default", {
+        tier: ruleMatch.tier,
+        pattern: ruleMatch.pattern,
+      });
+      return null;
+    }
+
     const ref = resolveTierModel({
       tier: ruleMatch.tier,
       routerConfig,
@@ -278,7 +301,7 @@ export async function routeModelForMessage(params: {
       aliasIndex: params.aliasIndex,
     });
     if (ref) {
-      log.info("model-router: routed", {
+      log.info("model-router: escalated", {
         tier: ruleMatch.tier,
         source: "rule",
         pattern: ruleMatch.pattern,
@@ -293,7 +316,17 @@ export async function routeModelForMessage(params: {
     }
   }
 
-  // Stage 2: LLM classifier fallback.
+  // Stage 2: LLM classifier — only for messages that are long/complex enough.
+  // Short messages use the default model directly (no classifier cost).
+  const classifierMinLength = routerConfig.classifierMinLength ?? 80;
+  if (message.length < classifierMinLength) {
+    log.info("model-router: short message, using default", {
+      length: message.length,
+      threshold: classifierMinLength,
+    });
+    return null;
+  }
+
   const classifierModel = routerConfig.classifierModel?.trim() || DEFAULT_CLASSIFIER_MODEL;
   const timeoutMs = routerConfig.classifierTimeoutMs ?? DEFAULT_CLASSIFIER_TIMEOUT_MS;
   const classifiedTier = await classifyWithLlm({
@@ -304,6 +337,14 @@ export async function routeModelForMessage(params: {
   });
 
   if (classifiedTier) {
+    // Only escalate for high/max. Mini/mid classification means the default model is fine.
+    if (classifiedTier === "mini" || classifiedTier === "mid") {
+      log.info("model-router: classifier says low tier, using default", {
+        tier: classifiedTier,
+      });
+      return null;
+    }
+
     const ref = resolveTierModel({
       tier: classifiedTier,
       routerConfig,
@@ -311,7 +352,7 @@ export async function routeModelForMessage(params: {
       aliasIndex: params.aliasIndex,
     });
     if (ref) {
-      log.info("model-router: routed", {
+      log.info("model-router: escalated", {
         tier: classifiedTier,
         source: "classifier",
         model: `${ref.provider}/${ref.model}`,

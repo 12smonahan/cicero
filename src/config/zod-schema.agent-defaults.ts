@@ -170,6 +170,38 @@ export const AgentDefaultsSchema = z
       })
       .strict()
       .optional(),
+    router: z
+      .object({
+        enabled: z.boolean().optional(),
+        rules: z
+          .array(
+            z.object({
+              pattern: z.string(),
+              tier: z.union([
+                z.literal("mini"),
+                z.literal("mid"),
+                z.literal("high"),
+                z.literal("max"),
+              ]),
+              flags: z.string().optional(),
+            }),
+          )
+          .optional(),
+        classifierModel: z.string().optional(),
+        tiers: z
+          .object({
+            mini: z.string().optional(),
+            mid: z.string().optional(),
+            high: z.string().optional(),
+            max: z.string().optional(),
+          })
+          .partial()
+          .optional(),
+        classifierTimeoutMs: z.number().int().positive().optional(),
+        classifierMinLength: z.number().int().min(0).optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict()
   .optional();
